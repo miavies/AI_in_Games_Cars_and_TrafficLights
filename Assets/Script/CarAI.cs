@@ -1,4 +1,5 @@
 using UnityEngine;
+using UnityEngine.AI;
 
 public class CarAI : MonoBehaviour
 {
@@ -12,7 +13,16 @@ public class CarAI : MonoBehaviour
     public float frontCheckingDistance;
     public float stopDistance;
     public LayerMask carLayer;
-   
+    public Transform sensorOrigin;
+
+
+    [Header("AI")]
+    private NavMeshAgent agent;
+    public Transform[] waypoints;
+    public bool loop = false;
+    public float waypointDistanceReached; // how close the agent is to the waypoint
+    int wpIndex;
+
     public TrafficLight ActiveTrafficLight { get; private set; }
     public float currentSpeed { get; private set; }
     
@@ -29,6 +39,7 @@ public class CarAI : MonoBehaviour
 
     private void Awake()
     {
+        agent = GetComponent<NavMeshAgent>();
         sm = new StateMachine();
         StopState = new CarStopState(this, sm);
         GoState = new CarGoState(this, sm);
@@ -40,28 +51,73 @@ public class CarAI : MonoBehaviour
     void Start()
     {
         sm.Change(StopState);
+
+        //checker if we added waypoints or if they exist
+        if (waypoints != null && waypoints.Length > 0 && waypoints[0] != null)
+            agent.SetDestination(waypoints[0].position); // tells the navmesh to go to this destination
     }
 
     // Update is called once per frame
     void Update()
     {
         UpdateSensor();
-        MoveForward();
+        //MoveForward();
+        DriveRoute();
         sm.Tick();
     }
 
-    void MoveForward()
+    //void MoveForward()
+    //{
+    //    transform.position += transform.forward * (currentSpeed * Time.deltaTime);
+    //}
+
+    void DriveRoute()
     {
-        transform.position += transform.forward * (currentSpeed * Time.deltaTime);
+        //if we have no waypoint do nothing
+        if (waypoints == null || waypoints.Length == 0) return;
+        ApplyAgentSpeed();
+        //if agent is still not calculating a path and we're close enough to our destination point
+        if (!agent.pathPending && agent.remainingDistance <= waypointDistanceReached)
+        {
+            wpIndex++;
+
+            if (wpIndex >= waypoints.Length)
+            {
+                //if we passed the last waypoint index and looping is enabled
+                if (loop) wpIndex = 0;
+                else return; // if not enabled stop rerouting
+            }
+
+            //if the current waypoint reference is not null
+            if (waypoints[wpIndex] != null)
+            {
+                agent.SetDestination(waypoints[wpIndex].position);
+            }
+        }
+    }
+
+    void ApplyAgentSpeed()
+    {
+        if(currentSpeed <= 0.01f)
+        {
+            agent.speed = 0; // makes the speed of agent = 0
+            agent.isStopped = true; //stops agent movement
+            return;
+        }
+        agent.isStopped = false; //make the agent move again
+        agent.speed = currentSpeed; //set agent speed to current speed
+        agent.acceleration = Mathf.Max(agent.acceleration, acceleration);  //set agent speed to current acceleration
     }
 
     void UpdateSensor()
     {
+        Transform origin = sensorOrigin != null ? sensorOrigin : transform;
+        Vector3 dir = origin.forward;
+
         CarAheadDetected = false;
         CarAheadStoppedClose = false;
-        Vector3 dir = Vector3.forward;
-        Debug.DrawRay(transform.position, dir * frontCheckingDistance);
-        if (Physics.Raycast(transform.position, dir, out RaycastHit hit, frontCheckingDistance, carLayer))
+        Debug.DrawRay(origin.position, dir * frontCheckingDistance);
+        if (Physics.Raycast(origin.position, dir, out RaycastHit hit, frontCheckingDistance, carLayer))
         {
             //raycast hit car layer
             CarAheadDetected = true;
@@ -104,4 +160,6 @@ public class CarAI : MonoBehaviour
         if(ActiveTrafficLight == light)
             ActiveTrafficLight = null;
     }
+
+
 }
